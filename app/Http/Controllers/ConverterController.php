@@ -13,7 +13,6 @@ use Google\Cloud\TextToSpeech\V1\VoiceSelectionParams;
 class ConverterController extends Controller
 {
     public function index() {
-        app('debugbar')->error('Watch out..');
         return view('converter.index');
     }
 
@@ -45,43 +44,52 @@ class ConverterController extends Controller
             $delimeter1 = '<break strength="medium"/>';
             $delimeter2 = '<break strength="weak"/>';
             $content = file_get_contents($file->getRealPath());
-            $content = str_replace('.', $delimeter1, $content);
-            $content = str_replace(',', $delimeter2, $content);
-            $content = "<speak>$content</speak>";
 
-            putenv('GOOGLE_APPLICATION_CREDENTIALS=../My First Project-bf16db5860ef.json');
+            $contents = $this->splitFile($content);
+            $audioContents = '';
 
-            // instantiates a client
-            $client = new TextToSpeechClient();
+            foreach ($contents as $content) {
+                $content = str_replace('.', $delimeter1, $content);
+                $content = str_replace(',', $delimeter2, $content);
+                $content = "<speak>$content</speak>";
+    
+                putenv('GOOGLE_APPLICATION_CREDENTIALS=../My First Project-bf16db5860ef.json');
+    
+                // instantiates a client
+                $client = new TextToSpeechClient();
+    
+                // sets text to be synthesised
+                $synthesisInputText = (new SynthesisInput())
+                    // ->setText($content);
+                    ->setSsml($content);
+    
+                // build the voice request, select the language code ("en-US") and the ssml
+                // voice gender
+                $voice = (new VoiceSelectionParams())
+                    ->setLanguageCode('vi')
+                    // ->setSsmlGender(SsmlVoiceGender::MALE);
+                    ->setSsmlGender($gender);
+    
+                // Effects profile
+                $effectsProfileId = $effect;
+    
+                // select the type of audio file you want returned
+                $audioConfig = (new AudioConfig())
+                    ->setAudioEncoding(AudioEncoding::MP3)
+                    ->setEffectsProfileId(array($effectsProfileId))
+                    ->setSpeakingRate($speed);
+    
+                // perform text-to-speech request on the text input with selected voice
+                // parameters and audio file type
+                $response = $client->synthesizeSpeech($synthesisInputText, $voice, $audioConfig);
+                $audioContent = $response->getAudioContent();
 
-            // sets text to be synthesised
-            $synthesisInputText = (new SynthesisInput())
-                // ->setText($content);
-                ->setSsml($content);
-
-            // build the voice request, select the language code ("en-US") and the ssml
-            // voice gender
-            $voice = (new VoiceSelectionParams())
-                ->setLanguageCode('vi')
-                // ->setSsmlGender(SsmlVoiceGender::MALE);
-                ->setSsmlGender($gender);
-
-            // Effects profile
-            $effectsProfileId = $effect;
-
-            // select the type of audio file you want returned
-            $audioConfig = (new AudioConfig())
-                ->setAudioEncoding(AudioEncoding::MP3)
-                ->setEffectsProfileId(array($effectsProfileId))
-                ->setSpeakingRate($speed);
-
-            // perform text-to-speech request on the text input with selected voice
-            // parameters and audio file type
-            $response = $client->synthesizeSpeech($synthesisInputText, $voice, $audioConfig);
-            $audioContent = $response->getAudioContent();
+                $audioContents .= $audioContent;
+            }
+            
 
             // the response's audioContent is binary
-            file_put_contents("$filename.mp3", $audioContent);
+            file_put_contents("$filename.mp3", $audioContents);
         }
         
         return $converterFilePath;
@@ -89,5 +97,33 @@ class ConverterController extends Controller
 
     public function downloadFile($filePath) {
         return response()->download($filePath);
+    }
+
+    private function splitFile($content) {
+        $content = trim(preg_replace('/\s+/', ' ', $content));
+        $sentences = explode('.', $content);
+        $contents = [];
+        $tmpContent = '';
+
+        foreach ($sentences as $key => $sentence) {
+            $sentence = trim($sentence);
+            if (strlen($tmpContent) + strlen($sentence) < 5000) {
+                if (strlen($tmpContent)) {
+                    $tmpContent .= ". $sentence";
+                } else {
+                    $tmpContent .= $sentence;
+                }
+
+                if ($key == sizeof($sentences) - 1) {
+                    $contents[] = $tmpContent;
+                }
+            } else {
+                $contents[] = $tmpContent;
+                $tmpContent = '';
+                $tmpContent .= $sentence;
+            }
+        }
+
+        return $contents;
     }
 }
